@@ -64,6 +64,8 @@ module Rack
         base.helpers Helpers
         base.set :oauth, Server.options
         base.use Server, base.settings.oauth
+
+        require "rack/oauth2/models/#{base.oauth.store}"
       end
 
     end
