@@ -13,8 +13,8 @@ module Rack
         end
 
         # Long, random and hexy.
-        def secure_random
-          OpenSSL::Random.random_bytes(32).unpack("H*")[0]
+        def secure_random bytes = 32
+          OpenSSL::Random.random_bytes(bytes).unpack("H*")[0]
         end
  
         # A ::DB object.

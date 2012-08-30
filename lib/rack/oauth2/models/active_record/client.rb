@@ -7,6 +7,8 @@ module Rack
         # Returns all the clients in the database, sorted alphabetically.
 #        default_scope order(:display_name)
 
+        validates_uniqueness_of :client_id
+
         class << self
 
           # Create a new client. Client provides the following properties:
@@ -30,6 +32,7 @@ module Rack
                         :revoked=>nil }
 
             fields[:secret] = Server.secure_random
+            fields[:client_id] = Server.secure_random 4
 
             create! fields
           end

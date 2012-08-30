@@ -31,7 +31,7 @@ module Rack
         # @return [Client]
         def get_client(client_id)
           return client_id if Client === client_id
-          Client.find(client_id)
+          Client.find_by_client_id(client_id)
         end
 
         # Registers and returns a new Client. Can also be used to update
@@ -190,7 +190,7 @@ module Rack
       #   end
       #
       # Assertion handler is a hash of blocks keyed by assertion_type.  Blocks receive
-      # three parameters: the client, the assertion, and the scope.  If authenticated, 
+      # three parameters: the client, the assertion, and the scope.  If authenticated,
       # it returns an identity.  Otherwise it can return nil or false.  For example:
       #   oauth.assertion_handler['facebook.com'] = lambda do |client, assertion, scope|
       #     facebook = URI.parse('https://graph.facebook.com/me?access_token=' + assertion)
@@ -203,7 +203,7 @@ module Rack
       # type, no error will result.
       #
       Options = Struct.new(:access_token_path, :authenticator, :assertion_handler, :authorization_types,
-        :authorize_path, :database, :host, :param_authentication, :path, :realm, 
+        :authorize_path, :database, :host, :param_authentication, :path, :realm,
         :expires_in,:logger, :collection_prefix, :store)
 
       # Global options. This is what we set during configuration (e.g. Rails'
@@ -401,6 +401,14 @@ module Rack
       # 4.  Obtaining an Access Token
       def respond_with_access_token(request, logger)
         return [405, { "Content-Type"=>"application/json" }, ["POST only"]] unless request.post?
+
+        if request.env['CONTENT_TYPE'] =~ /^application\/json/ && request.post?
+          request.env.update({
+                               'rack.request.form_hash' => ActiveSupport::JSON.decode(request.env['rack.input'].read),
+                               'rack.request.form_input' => request.env['rack.input']
+                             })
+        end
+
         # 4.2.  Access Token Response
         begin
           client = get_client(request)
@@ -459,7 +467,7 @@ module Rack
         rescue OAuthError=>error
           logger.error "RO2S: Access token request error #{error.code}: #{error.message}" if logger
           return unauthorized(request, error) if InvalidClientError === error && request.basic?
-          return [400, { "Content-Type"=>"application/json", "Cache-Control"=>"no-store" }, 
+          return [400, { "Content-Type"=>"application/json", "Cache-Control"=>"no-store" },
                   [{ :error=>error.code, :error_description=>error.message }.to_json]]
         end
       end
@@ -558,7 +566,7 @@ module Rack
 
         # True if authentication scheme is OAuth.
         def oauth?
-          authorization[/^oauth/i] if authorization
+          authorization[/^bearer/i] if authorization
         end
 
         # True if authentication scheme is Bearer.
