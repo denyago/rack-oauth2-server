@@ -3,11 +3,8 @@ module Rack
     class Server
 
       class ActiveRecord < ::ActiveRecord::Base
-        TABLE_PREFIX = "oauth2_provider_"
-
-        def self.table_name
-          TABLE_PREFIX + name.split("::").last.underscore
-        end
+        self.abstract_class     = true
+        self.table_name_prefix  = "oauth2_provider_"
       end
 
       class << self
@@ -19,7 +16,7 @@ module Rack
       class CreateRackOauth2ServerSchema < ::ActiveRecord::Migration
         def change
 
-          create_table "#{ActiveRecord::TABLE_PREFIX}client" do |t|
+          create_table Client.table_name do |t|
             # Client identifier.
             t.string :client_id
             # Client secret: random, long, and hexy.
@@ -45,10 +42,90 @@ module Rack
 
             t.timestamps
           end
-          change_table "#{ActiveRecord::TABLE_PREFIX}client" do |t|
+          change_table Client.table_name do |t|
             t.index :client_id
             t.index [:client_id, :secret]
           end
+
+          create_table AuthRequest.table_name do |t|
+            # Client making this request.
+            t.integer :client_id
+            # scope of this request: array of names.
+            t.string :scope
+            # Redirect back to this URL.
+            t.string :redirect_uri
+            # Client requested we return state on redirect.
+            t.string :state
+            # Response type: either code or token.
+            t.string :response_type
+            # If granted, the access grant code.
+            t.string :grant_code
+            # If granted, the access token.
+            t.string :access_token
+            # Keeping track of things.
+            t.datetime :authorized_at
+            # Timestamp if revoked.
+            t.datetime :revoked
+
+            t.timestamps
+          end
+          change_table AuthRequest.table_name do |t|
+            t.index :client_id
+          end
+
+          create_table AccessToken.table_name do |t|
+            # Client that was granted this access token.
+            t.integer :client_id
+            # The scope granted to this token.
+            t.string :scope
+            # Uniq token
+            t.string :token
+            # The identity we authorized access to.
+            t.string :identity
+            # When token expires for good.
+            t.datetime :expires_at
+            # Timestamp if revoked.
+            t.datetime :revoked
+            # Timestamp of last access using this token, rounded up to hour.
+            t.datetime :last_access
+            # Timestamp of previous access using this token, rounded up to hour.
+            t.datetime :prev_access
+
+            t.timestamps
+          end
+          change_table AccessToken.table_name do |t|
+            t.index :client_id
+            t.index :token
+          end
+
+          create_table AccessGrant.table_name do |t|
+            # Client that was granted this access token.
+            t.integer :client_id
+            # The scope granted to this token.
+            t.string :scope
+            # The identity we authorized access to.
+            t.string :identity
+            # Secret code
+            t.string :code
+            # Redirect URI for this grant.
+            t.string :redirect_uri
+            # When token expires for good.
+            t.datetime :expires_at
+            # Tells us when (and if) access token was created.
+            t.datetime :granted_at
+            # Timestamp if revoked.
+            t.datetime :revoked
+            # Access token created from this grant. Set and spent.
+            t.string :access_token
+
+
+            t.timestamps
+          end
+          change_table AccessGrant.table_name do |t|
+            t.index :client_id
+            t.index :code
+          end
+
         end
       end
     end
