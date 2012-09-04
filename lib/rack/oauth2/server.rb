@@ -429,13 +429,11 @@ module Rack
           when "password"
             raise UnsupportedGrantType unless options.authenticator
             # 4.1.2.  Resource Owner Password Credentials
-            username, password = request.POST.values_at("username", "password")
-            raise InvalidGrantError, "Missing username/password" unless username && password
             requested_scope = request.POST["scope"] ? Utils.normalize_scope(request.POST["scope"]) : client.scope
             allowed_scope = client.scope
             raise InvalidScopeError unless (requested_scope - allowed_scope).empty?
-            args = [username, password]
             args << client.id << requested_scope unless options.authenticator.arity == 2
+            args = extract_username_password(request)
             identity = options.authenticator.call(*args)
             raise InvalidGrantError, "Username/password do not match" unless identity
             access_token = AccessToken.get_token_for(identity, client, requested_scope, options.expires_in)
@@ -472,16 +470,28 @@ module Rack
         end
       end
 
+      def extract_username_password(request)
+        username, password = request.POST.values_at("username", "password")
+        if username.nil? && request.basic?
+          username, password = request.credentials
+        end
+        raise InvalidGrantError, "Missing username/password" unless username && password
+        [username, password]
+      end
+
       # Returns client from request based on credentials. Raises
       # InvalidClientError if client doesn't exist or secret doesn't match.
       def get_client(request, options={})
         # 2.1  Client Password Credentials
-        if request.basic?
-          client_id, client_secret = request.credentials
-        elsif request.post?
+        ## If we can get client_id and secret from params, we get them
+        if request.post?
           client_id, client_secret = request.POST.values_at("client_id", "client_secret")
         else
           client_id, client_secret = request.GET.values_at("client_id", "client_secret")
+        end
+        if ( client_id.nil? || client_secret.nil? ) && request.basic?
+          logger.debug "RO2S: Couldn't get client id or client secret from request. Geting from HTTP basic auth" if logger
+          client_id, client_secret = request.credentials
         end
         client = self.class.get_client(client_id)
         raise InvalidClientError if !client
