@@ -432,8 +432,8 @@ module Rack
             requested_scope = request.POST["scope"] ? Utils.normalize_scope(request.POST["scope"]) : client.scope
             allowed_scope = client.scope
             raise InvalidScopeError unless (requested_scope - allowed_scope).empty?
-            args << client.id << requested_scope unless options.authenticator.arity == 2
             args = extract_username_password(request)
+            args << client.id << requested_scope << request unless options.authenticator.arity == 2
             identity = options.authenticator.call(*args)
             raise InvalidGrantError, "Username/password do not match" unless identity
             access_token = AccessToken.get_token_for(identity, client, requested_scope, options.expires_in)
