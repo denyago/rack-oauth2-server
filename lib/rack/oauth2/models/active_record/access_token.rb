@@ -27,8 +27,9 @@ module Rack
           def get_token_for(identity, client, scope, expires = nil)
             raise ArgumentError, "Identity must be String or Integer" unless String === identity || Integer === identity
             scope = Utils.normalize_scope(scope) & client.scope # Only allowed scope
+            identity = identity.to_s
 
-            active.where(identity: identity, client_id: client.id, scope: scope.join(",")).where("expires_at is null or expires_at > ?", expires).first ||
+            active.where(identity: identity, client_id: client.id, scope: scope.join(",")).where("expires_at is null or expires_at > ?", Time.now).first ||
                    create_token_for(client, scope, identity, expires)
           end
 
