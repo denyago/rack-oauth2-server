@@ -19,7 +19,6 @@ module Rack
           # You can set optional expiration in seconds. If zero or nil, token
           # never expires.
           def get_token_for(identity, client, scope, expires = nil)
-            puts "---> GETTING TOKEN: client: #{client} scope: #{scope}, identity: #{identity}, expires: #{expires}"
             raise ArgumentError, "Identity must be String or Integer" unless String === identity || Integer === identity
             scope = Utils.normalize_scope(scope) & client.scope # Only allowed scope
 
@@ -36,7 +35,6 @@ module Rack
 
           # Creates a new AccessToken for the given client and scope.
           def create_token_for(client, scope, identity = nil, expires = nil)
-            puts "---> CREATING TOKEN: client: #{client} scope: #{scope}, identity: #{identity}, expires: #{expires}"
             expires_at = Time.now.to_i + expires if expires && expires != 0
             token = { :_id=>Server.secure_random, :scope=>scope,
                       :client_id=>client.id, :created_at=>Time.now.to_i,
