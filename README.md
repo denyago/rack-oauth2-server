@@ -17,10 +17,31 @@ For more background, [check out the presentation slides](http://speakerdeck.com/
 The authorization server needs to keep track of clients, authorization requests, access grants and access tokens. That
 could only mean one thing: a database.
 
-The current release uses [MongoDB](http://www.mongodb.org/). You're going to need a running server and open connection in
+#### MongoDB (Default)
+
+The current release uses [MongoDB](http://www.mongodb.org/) by default. You're going to need a running server and open connection in
 the form of a `Mongo::DB` object.  Because MongoDB is schema-less, there's no need to run migrations.
 
-If MongoDB is not your flavor, you can easily change the models to support a different database engine. All the
+#### ActiveRecord
+
+To use ActiveRecord with Rails 3:
+
+```ruby
+Rails::Initializer.run do |config|
+  . . .
+  config.oauth.store = :active_record
+end
+```
+
+Or on Sinatra
+
+```ruby
+  require "rack/oauth2/sinatra"
+  Rack::OAuth2::Server.options.store  = :active_record
+
+```
+
+If neither MongoDB nor ActiveRecord is your flavor, you can easily change the models to support a different database engine. All the
 persistence logic is located in `lib/rack/oauth2/models` and kept simple by design. And if you did the work to support a
 different database engine, send us a pull request.
 
@@ -405,13 +426,13 @@ $ ./script/console
    :public_key => "-----BEGIN RSA PUBLIC KEY-----\n....\n...=\n-----END RSA PUBLIC KEY-----\n")
 ```
 
-When you call `register_issuer` it either registers a new issuer with these specific values, or if an issuer already exists with the given 
+When you call `register_issuer` it either registers a new issuer with these specific values, or if an issuer already exists with the given
 identifier it will update it's properties.
 
-Depending on the algorithm used for signing the assertion (HMAC SHA or RSA), you pass either `:hmac_secret` or `:public_key` to `Rack::OAuth2::Server.register_issuer` 
+Depending on the algorithm used for signing the assertion (HMAC SHA or RSA), you pass either `:hmac_secret` or `:public_key` to `Rack::OAuth2::Server.register_issuer`
 (or both if you will use both with a single issuer). The value of `:public_key` can be either a PEM or DER encoded public key (as supported by `OpenSSL::PKey::RSA.new`).
 
-Rack::OAuth2::Server validates that the issuer (`iss`), principal (`prn`), audience (`aud`) and expiration (`exp`) claims are present. It also validates that the expiration 
+Rack::OAuth2::Server validates that the issuer (`iss`), principal (`prn`), audience (`aud`) and expiration (`exp`) claims are present. It also validates that the expiration
 claim has not passed (with a 10 minute padding added to account for server clock skew).
 
 

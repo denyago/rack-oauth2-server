@@ -31,7 +31,7 @@ module Rack
         # @return [Client]
         def get_client(client_id)
           return client_id if Client === client_id
-          Client.find(client_id)
+          Client.find_by_client_id(client_id)
         end
 
         # Registers and returns a new Client. Can also be used to update
@@ -190,7 +190,7 @@ module Rack
       #   end
       #
       # Assertion handler is a hash of blocks keyed by assertion_type.  Blocks receive
-      # three parameters: the client, the assertion, and the scope.  If authenticated, 
+      # three parameters: the client, the assertion, and the scope.  If authenticated,
       # it returns an identity.  Otherwise it can return nil or false.  For example:
       #   oauth.assertion_handler['facebook.com'] = lambda do |client, assertion, scope|
       #     facebook = URI.parse('https://graph.facebook.com/me?access_token=' + assertion)
@@ -203,8 +203,8 @@ module Rack
       # type, no error will result.
       #
       Options = Struct.new(:access_token_path, :authenticator, :assertion_handler, :authorization_types,
-        :authorize_path, :database, :host, :param_authentication, :path, :realm, 
-        :expires_in,:logger, :collection_prefix)
+        :authorize_path, :database, :host, :param_authentication, :path, :realm,
+        :expires_in,:logger, :collection_prefix, :store)
 
       # Global options. This is what we set during configuration (e.g. Rails'
       # config/application), and options all handlers inherit by default.
@@ -245,7 +245,7 @@ module Rack
         # 5.  Accessing a Protected Resource
         if request.authorization
           # 5.1.1.  The Authorization Request Header Field
-          token = request.credentials if request.oauth?
+          token = request.credentials if request.oauth? || request.bearer?
         elsif options.param_authentication && !request.GET["oauth_verifier"] # Ignore OAuth 1.0 callbacks
           # 5.1.2.  URI Query Parameter
           # 5.1.3.  Form-Encoded Body Parameter
@@ -401,6 +401,14 @@ module Rack
       # 4.  Obtaining an Access Token
       def respond_with_access_token(request, logger)
         return [405, { "Content-Type"=>"application/json" }, ["POST only"]] unless request.post?
+
+        if request.env['CONTENT_TYPE'] =~ /^application\/json/ && request.post?
+          request.env.update({
+                               'rack.request.form_hash' => ActiveSupport::JSON.decode(request.env['rack.input'].read),
+                               'rack.request.form_input' => request.env['rack.input']
+                             })
+        end
+
         # 4.2.  Access Token Response
         begin
           client = get_client(request)
@@ -421,13 +429,11 @@ module Rack
           when "password"
             raise UnsupportedGrantType unless options.authenticator
             # 4.1.2.  Resource Owner Password Credentials
-            username, password = request.POST.values_at("username", "password")
-            raise InvalidGrantError, "Missing username/password" unless username && password
             requested_scope = request.POST["scope"] ? Utils.normalize_scope(request.POST["scope"]) : client.scope
             allowed_scope = client.scope
             raise InvalidScopeError unless (requested_scope - allowed_scope).empty?
-            args = [username, password]
-            args << client.id << requested_scope unless options.authenticator.arity == 2
+            args = extract_username_password(request)
+            args << client.id << requested_scope << request unless options.authenticator.arity == 2
             identity = options.authenticator.call(*args)
             raise InvalidGrantError, "Username/password do not match" unless identity
             access_token = AccessToken.get_token_for(identity, client, requested_scope, options.expires_in)
@@ -459,21 +465,33 @@ module Rack
         rescue OAuthError=>error
           logger.error "RO2S: Access token request error #{error.code}: #{error.message}" if logger
           return unauthorized(request, error) if InvalidClientError === error && request.basic?
-          return [400, { "Content-Type"=>"application/json", "Cache-Control"=>"no-store" }, 
+          return [400, { "Content-Type"=>"application/json", "Cache-Control"=>"no-store" },
                   [{ :error=>error.code, :error_description=>error.message }.to_json]]
         end
+      end
+
+      def extract_username_password(request)
+        username, password = request.POST.values_at("username", "password")
+        if username.nil? && request.basic?
+          username, password = request.credentials
+        end
+        raise InvalidGrantError, "Missing username/password" unless username && password
+        [username, password]
       end
 
       # Returns client from request based on credentials. Raises
       # InvalidClientError if client doesn't exist or secret doesn't match.
       def get_client(request, options={})
         # 2.1  Client Password Credentials
-        if request.basic?
-          client_id, client_secret = request.credentials
-        elsif request.post?
+        ## If we can get client_id and secret from params, we get them
+        if request.post?
           client_id, client_secret = request.POST.values_at("client_id", "client_secret")
         else
           client_id, client_secret = request.GET.values_at("client_id", "client_secret")
+        end
+        if ( client_id.nil? || client_secret.nil? ) && request.basic?
+          logger.debug "RO2S: Couldn't get client id or client secret from request. Geting from HTTP basic auth" if logger
+          client_id, client_secret = request.credentials
         end
         client = self.class.get_client(client_id)
         raise InvalidClientError if !client
@@ -482,7 +500,7 @@ module Rack
         end
         raise InvalidClientError if client.revoked
         return client
-      rescue BSON::InvalidObjectId
+      rescue
         raise InvalidClientError
       end
 
@@ -500,7 +518,7 @@ module Rack
       def unauthorized(request, error = nil)
         challenge = 'OAuth realm="%s"' % (options.realm || request.host)
         challenge << ', error="%s", error_description="%s"' % [error.code, error.message] if error
-        return [401, { "WWW-Authenticate"=>challenge }, [error && error.message || ""]]
+        return [401, { "Content-Type"=>"text/plain", "WWW-Authenticate"=>challenge }, [error && error.message || ""]]
       end
 
       # Processes a JWT assertion
@@ -558,7 +576,12 @@ module Rack
 
         # True if authentication scheme is OAuth.
         def oauth?
-          authorization[/^oauth/i] if authorization
+          authorization[/^bearer/i] if authorization
+        end
+
+        # True if authentication scheme is Bearer.
+        def bearer?
+          authorization[/^bearer/i] if authorization
         end
 
         # True if authentication scheme is Basic.
@@ -570,7 +593,8 @@ module Rack
         # token.
         def credentials
           basic? ? authorization.gsub(/\n/, "").split[1].unpack("m*").first.split(/:/, 2) :
-          oauth? ? authorization.gsub(/\n/, "").split[1] : nil
+          oauth? ? authorization.gsub(/\n/, "").split[1] :
+          bearer? ? authorization.gsub(/\n/, "").split[1] : nil
         end
       end
 

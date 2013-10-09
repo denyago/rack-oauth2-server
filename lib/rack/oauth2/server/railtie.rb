@@ -12,12 +12,18 @@ module Rack
         initializer "rack-oauth2-server" do |app|
           app.middleware.use ::Rack::OAuth2::Server, app.config.oauth
           config.oauth.logger ||= ::Rails.logger
+
+          config.oauth.store ||= :mongodb
+
+          require "rack/oauth2/models/#{config.oauth.store}"
+
           class ::ActionController::Base
             helper ::Rack::OAuth2::Rails::Helpers
             include ::Rack::OAuth2::Rails::Helpers
             extend ::Rack::OAuth2::Rails::Filters
           end
         end
+
       end
     end
   end
