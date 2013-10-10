@@ -16,13 +16,13 @@ module Rack
         def secure_random bytes = 32
           OpenSSL::Random.random_bytes(bytes).unpack("H*")[0]
         end
- 
+
         # A ::DB object.
         def database
           raise "No database Configured. You must configure it."
         end
       end
- 
+
     end
   end
 end

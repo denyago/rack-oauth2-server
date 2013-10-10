@@ -1,7 +1,6 @@
 module Rack
   module OAuth2
     class Server
-
       # Access token. This is what clients use to access resources.
       #
       # An access token is a unique code, associated with a client, an identity
@@ -12,6 +11,7 @@ module Rack
         scope :revoked, lambda { where("revoked is not null") }
 
         validates_uniqueness_of :token
+        belongs_to :client
 
         class << self
 
@@ -28,19 +28,31 @@ module Rack
             raise ArgumentError, "Identity must be String or Integer" unless String === identity || Integer === identity
             scope = Utils.normalize_scope(scope) & client.scope # Only allowed scope
             identity = identity.to_s
+            t = AccessToken.arel_table
+            condition = nil
+            expires = expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
+            if expires > (Time.now.utc + Server.options.expires_in)
+              condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires)))
+            end
 
-            active.where(identity: identity, client_id: client.id, scope: scope.join(",")).where("expires_at is null or expires_at > ?", Time.now).first ||
-                   create_token_for(client, scope, identity, expires)
+            active.where({
+              identity: identity,
+              client_id: client.id,
+              scope: scope.join(",")
+            }).where(condition).first || create_token_for(client, scope, identity, expires)
           end
 
           # Creates a new AccessToken for the given client and scope.
           def create_token_for(client, scope, identity = nil, expires = nil)
-            expires_at = Time.now + expires if expires && expires != 0
-            scope = Utils.normalize_scope(scope) & client.scope # Only allowed scope
+            scope = Utils.normalize_scope(scope) & client.scope
 
-            attrs = { :token=>Server.secure_random, :scope=>scope,
-                      :client_id=>client.id,
-                      :expires_at=>expires_at, :revoked=>nil }
+            attrs = {
+              token: Server.secure_random,
+              scope: scope,
+              client_id: client.id,
+              expires_at: expires,
+              revoked: nil
+            }
             attrs[:identity] = identity if identity
 
             token = nil
@@ -77,7 +89,7 @@ module Rack
           def count(filter = {})
             collection = all
             if filter[:days]
-              now = Time.now.to_i
+              now = Time.now.utc.to_i
               old = now - filter[:days].to_i.days
 
               collection = collection.where("date between ? and ?", old, now)
@@ -99,10 +111,6 @@ module Rack
             if filter[:client_id]
               collection = collection.where :client_id => filter[:client_id]
             end
-            # FIXME
-#            raw = Server::AccessToken.collection.group("function (token) { return { ts: Math.floor(token.created_at / 86400) } }",
-#              select, { :granted=>0 }, "function (token, state) { state.granted++ }")
-#            raw.sort { |a, b| a["ts"] - b["ts"] }
           end
 
           def collection
@@ -110,31 +118,9 @@ module Rack
           end
         end
 
-        belongs_to :client
-
-        # # Access token. As unique as they come.
-        # attr_reader :_id
-        # alias :token :_id
-        # # The identity we authorized access to.
-        # attr_reader :identity
-        # # Client that was granted this access token.
-        # attr_reader :client_id
-        # # The scope granted to this token.
-        # attr_reader :scope
-        # # When token was granted.
-        # attr_reader :created_at
-        # # When token expires for good.
-        # attr_reader :expires_at
-        # # Timestamp if revoked.
-        # attr_accessor :revoked
-        # # Timestamp of last access using this token, rounded up to hour.
-        # attr_accessor :last_access
-        # # Timestamp of previous access using this token, rounded up to hour.
-        # attr_accessor :prev_access
-
         # Updates the last access timestamp.
         def access!
-          today = Time.now
+          today = Time.now.utc
           if last_access.nil? || last_access < today
             update_attribute :last_access, today
           end
@@ -143,7 +129,7 @@ module Rack
         # Revokes this access token.
         def revoke!
           self.class.transaction do
-            update_attribute :revoked, Time.now
+            update_attribute :revoked, Time.now.utc
             client.increment! :tokens_revoked
           end
         end
