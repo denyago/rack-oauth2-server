@@ -15,12 +15,6 @@ module Rack
 
         class << self
 
-          def identity_like(identity)
-            table     = AccessToken.arel_table
-            condition = table[:identity].eq(identity)
-            self.where(condition)
-          end
-
           # Find AccessToken from token. Does not return revoked tokens.
           def from_token(token)
             find_by_token token
