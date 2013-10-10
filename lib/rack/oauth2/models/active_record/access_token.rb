@@ -15,6 +15,12 @@ module Rack
 
         class << self
 
+          def identity_like(query)
+            table     = AccessToken.arel_table
+            condition = table[:identity].eq(query)
+            self.where(condition)
+          end
+
           # Find AccessToken from token. Does not return revoked tokens.
           def from_token(token)
             find_by_token token
@@ -29,15 +35,11 @@ module Rack
             raise ArgumentError, "Identity must be String or Integer" unless String === identity || Integer === identity
             scope = Utils.normalize_scope(scope) & client.scope
             identity = identity.to_s
-            puts "expires before: #{expires}"
-            expires = expires_date(expires)
-            puts "expires after: #{expires}"
-
             t = AccessToken.arel_table
-
             condition = nil
-            if Time.at(expires).utc > (Time.now.utc + Server.options.expires_in)
-              condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((Time.at(expires).utc).strftime("%Y-%m-%d 00:00:00")))
+            expires = expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
+            if expires > (Time.now.utc + Server.options.expires_in)
+              condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires).strftime("%Y-%m-%d 00:00:00")))
             end
 
             active.where({
@@ -69,22 +71,6 @@ module Rack
             end
 
             token
-          end
-
-          def expires_date(expires_at=nil)
-            if expires_at.nil?
-              Time.now.utc + Server.options.expires_in
-            else
-              expires_at if expires_at != 0
-            end
-          end
-
-          def expired?(expires_in)
-            # (Time.now.utc + expires_in) > self.expires_in
-          end
-
-          def more_than_two_weeks?(expires_in=nil)
-            # (Time.now.utc + expires_in.to_i) > expires_at
           end
 
           # Find all AccessTokens for an identity.
