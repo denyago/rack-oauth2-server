@@ -13,26 +13,6 @@ module Rack
         validates_uniqueness_of :token
         belongs_to :client
 
-        # # Access token. As unique as they come.
-        # attr_reader :_id
-        # alias :token :_id
-        # # The identity we authorized access to.
-        # attr_reader :identity
-        # # Client that was granted this access token.
-        # attr_reader :client_id
-        # # The scope granted to this token.
-        # attr_reader :scope
-        # # When token was granted.
-        # attr_reader :created_at
-        # # When token expires for good.
-        # attr_reader :expires_at
-        # # Timestamp if revoked.
-        # attr_accessor :revoked
-        # # Timestamp of last access using this token, rounded up to hour.
-        # attr_accessor :last_access
-        # # Timestamp of previous access using this token, rounded up to hour.
-        # attr_accessor :prev_access
-
         class << self
 
           # Find AccessToken from token. Does not return revoked tokens.
@@ -59,7 +39,6 @@ module Rack
             if Time.at(expires).utc > (Time.now.utc + Server.options.expires_in)
               condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((Time.at(expires).utc).strftime("%Y-%m-%d 00:00:00")))
             end
-            puts "cond: #{condition.to_sql}"
 
             active.where({
               identity: identity,
