@@ -15,9 +15,9 @@ module Rack
 
         class << self
 
-          def identity_like(query)
+          def identity_like(identity)
             table     = AccessToken.arel_table
-            condition = table[:identity].eq(query)
+            condition = table[:identity].eq(identity)
             self.where(condition)
           end
 
@@ -31,15 +31,14 @@ module Rack
           # You can set optional expiration in seconds. If zero or nil, token
           # never expires.
           def get_token_for(identity, client, scope, expires = nil)
-            puts "GETTING"
             raise ArgumentError, "Identity must be String or Integer" unless String === identity || Integer === identity
-            scope = Utils.normalize_scope(scope) & client.scope
+            scope = Utils.normalize_scope(scope) & client.scope # Only allowed scope
             identity = identity.to_s
             t = AccessToken.arel_table
             condition = nil
             expires = expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
             if expires > (Time.now.utc + Server.options.expires_in)
-              condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires).strftime("%Y-%m-%d 00:00:00")))
+              condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires)))
             end
 
             active.where({
@@ -51,7 +50,6 @@ module Rack
 
           # Creates a new AccessToken for the given client and scope.
           def create_token_for(client, scope, identity = nil, expires = nil)
-            puts "CREATING"
             scope = Utils.normalize_scope(scope) & client.scope
 
             attrs = {
@@ -115,10 +113,9 @@ module Rack
           def historical(filter = {})
             days = filter[:days] || 60
 
-            t = AccessToken.arel_table
-            collection = where(t[:created_at].gt(Time.now.utc - days.days))
+            collection = where("created_at > ?", Time.now - days.days)
             if filter[:client_id]
-              collection = collection.where(t[:client_id].eq(filter[:client_id]))
+              collection = collection.where :client_id => filter[:client_id]
             end
           end
 
