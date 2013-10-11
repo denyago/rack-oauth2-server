@@ -30,6 +30,7 @@ module Rack
             identity = identity.to_s
             t = AccessToken.arel_table
             condition = nil
+
             expires = expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
             if expires > (Time.now.utc + Server.options.expires_in)
               condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires)))
@@ -42,28 +43,30 @@ module Rack
             }).where(condition).first || create_token_for(client, scope, identity, expires)
           end
 
-          # Creates a new AccessToken for the given client and scope.
           def create_token_for(client, scope, identity = nil, expires = nil)
-            scope = Utils.normalize_scope(scope) & client.scope
+            new(client: client, scope: scope, identity: identity, expires: expires).tap do |token|
+              self.transaction do
+                token.save!
+                client.increment! :tokens_granted
+              end
+            end
+          end
 
-            attrs = {
-              token: Server.secure_random,
-              scope: scope,
-              client_id: client.id,
-              expires_at: expires,
-              revoked: nil
-            }
-            attrs[:identity] = identity if identity
-
-            token = nil
-
-            self.transaction do
-              token = create! attrs
-              client.increment! :tokens_granted
+          def initialize(opts={})
+            scope = begin
+              Utils.normalize_scope(opts[:scope]) & opts[:client].scope
+            rescue
+              []
             end
 
-            token
+            self.token    =  Server.secure_random,
+            self.scope    =  opts[:scope],
+            self.client_id =  opts[:client].id,
+            self.expires_at = opts[:expires],
+            self.revoked  =    nil
+            self.identity =  opts[:identity
           end
+
 
           # Find all AccessTokens for an identity.
           def from_identity(identity)
