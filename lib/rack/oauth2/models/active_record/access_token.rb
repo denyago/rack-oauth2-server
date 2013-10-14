@@ -13,6 +13,8 @@ module Rack
         validates_uniqueness_of :token
         belongs_to :client
 
+        after_initialize :active_record_sucks
+
         class << self
 
           # Find AccessToken from token. Does not return revoked tokens.
@@ -31,7 +33,7 @@ module Rack
             t = AccessToken.arel_table
             condition = nil
 
-            expires = expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
+            expires = when_expires(expires)
             if expires > (Time.now.utc + Server.options.expires_in)
               condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires)))
             end
@@ -43,30 +45,19 @@ module Rack
             }).where(condition).first || create_token_for(client, scope, identity, expires)
           end
 
+          def when_expires(expires)
+            expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
+          end
+
           def create_token_for(client, scope, identity = nil, expires = nil)
-            new(client: client, scope: scope, identity: identity, expires: expires).tap do |token|
+            expires_at = when_expires(expires)
+            new(client: client, scope: scope, identity: identity, expires_at: expires_at).tap do |token|
               self.transaction do
                 token.save!
                 client.increment! :tokens_granted
               end
             end
           end
-
-          def initialize(opts={})
-            scope = begin
-              Utils.normalize_scope(opts[:scope]) & opts[:client].scope
-            rescue
-              []
-            end
-
-            self.token    =  Server.secure_random,
-            self.scope    =  opts[:scope],
-            self.client_id =  opts[:client].id,
-            self.expires_at = opts[:expires],
-            self.revoked  =    nil
-            self.identity =  opts[:identity
-          end
-
 
           # Find all AccessTokens for an identity.
           def from_identity(identity)
@@ -145,8 +136,21 @@ module Rack
           self[:scope].split(",")
         end
 
-      end
+        def active_record_sucks(opts={})
+          return if self.persisted?
 
+          scope = begin
+            Utils.normalize_scope(self.scope) & self.client.scope
+          rescue
+            []
+          end
+
+          self.expires_at = self.class.when_expires(self.expires_at)
+          self.token      = Server.secure_random
+          self.scope      = scope
+          self.revoked    = nil
+        end
+      end # class
     end
   end
 end
