@@ -7,13 +7,17 @@ module Rack
       # and scope. It may be revoked, or expire after a certain period.
       class AccessToken < ActiveRecord
 
-        scope :active, lambda { where(revoked: nil) }
-        scope :revoked, lambda { where("revoked is not null") }
+        scope :active,      lambda { where(revoked: nil) }
+        scope :revoked,     lambda { where(arel_table[:revoked].not(nil)) }
+        scope :not_expired, lambda {
+          expires_at = AccessToken.arel_table[:expires_at]
+          where(expires_at.eq(nil).or(expires_at.gt(Time.now)))
+        }
 
         validates_uniqueness_of :token
         belongs_to :client
 
-        after_initialize :active_record_sucks
+        after_initialize :set_default_values
 
         class << self
 
@@ -28,25 +32,19 @@ module Rack
           # never expires.
           def get_token_for(identity, client, scope, expires = nil)
             raise ArgumentError, "Identity must be String or Integer" unless String === identity || Integer === identity
+
             scope = Utils.normalize_scope(scope) & client.scope # Only allowed scope
             identity = identity.to_s
-            t = AccessToken.arel_table
-            condition = nil
 
-            expires = when_expires(expires)
-            if expires > (Time.now.utc + Server.options.expires_in)
-              condition = t[:expires_at].eq(nil).or(t[:expires_at].gt((expires)))
-            end
-
-            active.where({
+            active.not_expired.where({
               identity: identity,
               client_id: client.id,
               scope: scope.join(",")
-            }).where(condition).first || create_token_for(client, scope, identity, expires)
+            }).first || create_token_for(client, scope, identity, expires)
           end
 
           def when_expires(expires)
-            expires.nil? ? (Time.now.utc + Server.options.expires_in) : Time.at(expires).utc
+            expires.nil? ? nil : (Time.now.utc + expires.seconds)
           end
 
           def create_token_for(client, scope, identity = nil, expires = nil)
@@ -136,7 +134,7 @@ module Rack
           self[:scope].split(",")
         end
 
-        def active_record_sucks(opts={})
+        def set_default_values(opts={})
           return if self.persisted?
 
           scope = begin
@@ -145,7 +143,7 @@ module Rack
             []
           end
 
-          self.expires_at = self.class.when_expires(self.expires_at)
+          self.expires_at = self.class.when_expires(Server.options.expires_in)
           self.token      = Server.secure_random
           self.scope      = scope
           self.revoked    = nil
